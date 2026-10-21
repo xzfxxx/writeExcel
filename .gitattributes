@@ -1,0 +1,4 @@
+# Windows 批处理必须是 CRLF 换行，禁止任何换行转换（-text = 按字节原样保存）
+*.bat -text
+*.cmd -text
+*.ps1 -text
