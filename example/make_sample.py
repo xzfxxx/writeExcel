@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""生成示例模板 example/模板示例.xlsx（带样式，可直接拿去改）。
+"""生成示例模板 example/template-sample.xlsx（带样式，可直接拿去改）。
 
 运行：python example/make_sample.py
 """
@@ -13,7 +13,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-OUT = Path(__file__).resolve().parent / "模板示例.xlsx"
+OUT = Path(__file__).resolve().parent / "template-sample.xlsx"
 
 THIN = Side(style="thin", color="A6A6A6")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)

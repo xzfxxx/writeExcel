@@ -144,7 +144,7 @@ build_windows.bat
 * 工作表名限制：≤31 个字符，不能含 `: \ / ? * [ ]`；
 * 想把页签改成「数据和模板不同」的名字时，直接把它写成分组名即可，例如模板里的 `Sheet1` 想变成 `销售明细`，就写 `{'销售明细': [...]}`。
 
-示例数据：`example/数据示例_多表.txt`（配合 `example/模板示例.xlsx`，会把「客户信息」「备注说明」两张表改名为「客户清单」「备注表」）。
+示例数据：`example/data-sample-multi.txt`（配合 `example/template-sample.xlsx`，会把「客户信息」「备注说明」两张表改名为「客户清单」「备注表」）。
 
 ### 3.5 容错：这些写法都能认
 
@@ -171,7 +171,7 @@ UTF-8、UTF-8(带 BOM)、GBK/GB18030、UTF-16 都会自动识别（记事本默�
 
 ### 3.7 完整示例
 
-见 `example/数据示例.txt`：
+见 `example/data-sample.txt`：
 
 ```
 [
@@ -183,7 +183,7 @@ UTF-8、UTF-8(带 BOM)、GBK/GB18030、UTF-16 都会自动识别（记事本默�
 ]
 ```
 
-对应的成品模板是 `example/模板示例.xlsx`（带标题、表头、边框、列宽、冻结窗格），
+对应的成品模板是 `example/template-sample.xlsx`（带标题、表头、边框、列宽、冻结窗格），
 运行 `python example/make_sample.py` 可重新生成。
 
 ---
@@ -253,7 +253,7 @@ fill.bat 模板.xlsx 数据.txt [输出.xlsx] [更多参数...]
 示例（生成到指定目录，允许覆盖）：
 
 ```bat
-fill.bat "D:\模板\客户模板.xlsx" "D:\数据\data.txt" "D:\输出\客户结果.xlsx" -y
+fill.bat "D:\tpl\template.xlsx" "D:\data\data.txt" "D:\out\result.xlsx" -y
 ```
 
 只想验证整条链路是否正常，可以双击 **`demo_auto.bat`**：它会自动用示例模板 + 多表示例数据生成 `example\自动输出.xlsx` 并显示退出码。
@@ -306,6 +306,16 @@ Excel 上限 32767 个字符，超了会报错并说明是哪一条。
 **Q：一个工作表都没有、只想改名？**
 分组值写空对象 `{}` 或空数组 `[]`，例如 `{'2024年数据': {}}`，只会重命名页签。
 
+**Q：运行 `fill.bat` 后 cmd 一直卡着不动？**
+常见原因是 **.bat 文件的换行/编码不对**：Windows 批处理必须是 **CRLF 换行 + ASCII（或系统 ANSI）编码**。用 Linux/macOS 编辑器改过就会变成 LF，cmd 解析 `if (...)` 多行块时会卡住甚至反复执行。
+本项目的 4 个 bat 已经统一为 **CRLF + 纯 ASCII + 无多行括号块**，并且 `fill.bat` 把标准输入重定向到 `NUL`，所以**即使程序想等按键也会立刻返回**，不可能卡住。
+如果还有问题，先单独验证 exe：
+```bat
+writeExcel.exe --version
+writeExcel.exe "模板.xlsx" "数据.txt" --no-pause
+```
+`--version` 显示的是 `1.1.0` 或更高才说明用的是新 exe（旧 exe 需要重新打包）。
+
 ---
 
 ## 七、目录结构
@@ -318,9 +328,9 @@ writeExcel/
 │  ├─ excel_writer.py        # 定位、校验、写入、另存（openpyxl）
 │  └─ cli.py                 # 命令行 + 交互模式
 ├─ example/
-│  ├─ 模板示例.xlsx           # 示例模板（带样式，2 张工作表）
-│  ├─ 数据示例.txt            # 示例数据（普通数组写法）
-│  ├─ 数据示例_多表.txt       # 示例数据（按工作表分组 + 改名）
+│  ├─ template-sample.xlsx    # 示例模板（带样式，2 张工作表）
+│  ├─ data-sample.txt         # 示例数据（普通数组写法）
+│  ├─ data-sample-multi.txt   # 示例数据（按工作表分组 + 改名）
 │  └─ make_sample.py         # 重新生成示例模板
 ├─ tests/selftest.py         # 自测（108 项断言，不依赖 pytest）
 ├─ fill.bat                  # 【自动调用】参数：模板 数据 [输出]（无人工交互）
@@ -337,8 +347,8 @@ writeExcel/
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\pip
 .venv/bin/python tests/selftest.py            # 期望：全部测试通过（OK）
-.venv/bin/python write_excel.py example/模板示例.xlsx example/数据示例.txt -n
-.venv/bin/python write_excel.py example/模板示例.xlsx example/数据示例_多表.txt -n
+.venv/bin/python write_excel.py example/template-sample.xlsx example/data-sample.txt -n
+.venv/bin/python write_excel.py example/template-sample.xlsx example/data-sample-multi.txt -n
 ```
 
 ## 九、已知限制

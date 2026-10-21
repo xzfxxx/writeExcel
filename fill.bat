@@ -1,42 +1,48 @@
 @echo off
 REM ============================================================
-REM  fill.bat - 调用 writeExcel.exe 自动填充 Excel 模板
+REM  fill.bat - call writeExcel.exe automatically (no interaction)
 REM
-REM  用法:
-REM    fill.bat ^<template.xlsx^> ^<data.txt^> [output.xlsx] [附加参数...]
+REM  Usage:
+REM    fill.bat ^<template.xlsx^> ^<data.txt^> [output.xlsx] [options...]
 REM
-REM  参数1: Excel 模板路径
-REM  参数2: 数据 txt 路径
-REM  参数3: 输出文件名/路径（不传 = 默认生成 "模板名_已填充.xlsx"）
-REM  之后可跟任意 writeExcel 参数，例如 -y（允许覆盖）、--parse-numbers
+REM  arg1  : Excel template path
+REM  arg2  : data txt path
+REM  arg3  : output file name or full path
+REM          (omitted = default "<template>_filled.xlsx" next to template)
+REM  arg4+ : forwarded to writeExcel.exe, e.g. -y  --parse-numbers
 REM
-REM  特点: 全程无人交互，执行完立即返回；退出码 0 = 成功
+REM  Exit codes: 0=ok  2=bad usage  3=data error  4=write error
+REM              9009=writeExcel.exe not found
+REM
+REM  Notes:
+REM    * stdin is redirected from NUL, so the program can never
+REM      wait for a keypress and hang.
+REM    * keep this file using CRLF line endings (Windows batch).
 REM ============================================================
 setlocal EnableExtensions
 
 set "EXE=%~dp0writeExcel.exe"
-if not exist "%EXE%" (
-    echo [ERROR] writeExcel.exe not found next to this script: "%~dp0"
-    echo         Put fill.bat and writeExcel.exe in the same folder.
-    exit /b 9009
-)
 
+if not exist "%EXE%" goto noexe
 if "%~1"=="" goto usage
 if "%~2"=="" goto usage
+if "%~3"=="" goto no_output
 
-if "%~3"=="" (
-    "%EXE%" "%~1" "%~2" --no-pause
-) else (
-    "%EXE%" "%~1" "%~2" "%~3" --no-pause %4 %5 %6 %7 %8 %9
-)
-
+"%EXE%" "%~1" "%~2" "%~3" --no-pause %4 %5 %6 %7 %8 %9 <nul
 exit /b %ERRORLEVEL%
 
+:no_output
+"%EXE%" "%~1" "%~2" --no-pause %4 %5 %6 %7 %8 %9 <nul
+exit /b %ERRORLEVEL%
+
+:noexe
+echo [ERROR] writeExcel.exe not found in: %~dp0
+echo         Put writeExcel.exe and fill.bat in the same folder.
+exit /b 9009
+
 :usage
-echo Usage:
-echo   fill.bat ^<template.xlsx^> ^<data.txt^> [output.xlsx] [options...]
-echo.
+echo Usage: fill.bat ^<template.xlsx^> ^<data.txt^> [output.xlsx] [options...]
 echo Examples:
-echo   fill.bat C:\tpl\模板.xlsx C:\data\数据.txt
-echo   fill.bat C:\tpl\模板.xlsx C:\data\数据.txt C:\out\结果.xlsx -y
+echo   fill.bat C:\tpl\template.xlsx C:\data\data.txt
+echo   fill.bat C:\tpl\template.xlsx C:\data\data.txt C:\out\result.xlsx -y
 exit /b 2
