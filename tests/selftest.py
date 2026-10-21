@@ -25,6 +25,7 @@ from wexcel import FillError, loads  # noqa: E402
 from wexcel.excel_writer import (  # noqa: E402
     _has_leading_zero,
     fill,
+    normalize_document,
     normalize_entries,
     parse_cell_refs,
     parse_single_ref,
@@ -300,6 +301,95 @@ def test_normalize():
     expect_error("缺少内容", normalize_entries, [{"l": "0-0"}])
     expect_error("顶层不是数组", normalize_entries, "abc")
 
+    # 规范化入口：旧格式不算"工作表分组"
+    check("数组不算分组", normalize_document(loads("[{l:'0-0',v:'a'}]")).is_sheet_map is False)
+    check("data 包装不算分组", normalize_document(loads("{data:[{l:'0-0',v:'a'}]}")).is_sheet_map is False)
+    check("单条不算分组", normalize_document(loads("{l:'0-0',v:'a'}")).is_sheet_map is False)
+    check("分组被识别", normalize_document(loads("{'S1':{l:'0-0',v:'a'}}")).is_sheet_map is True)
+
+
+def main() -> int:
+    test_parser()
+    test_positions()
+    test_normalize()
+
+def test_sheet_map(tmp: Path):
+    """按工作表分组 + 按参数重命名工作表。"""
+    template = tmp / "模板_map.xlsx"
+    make_template(template)  # 两张表：客户信息、备注说明
+
+    # 1) 分组名与模板表名一致：写内容，不改名
+    raw = loads("{'客户信息':[{l:'2-0',v:'张三'},{l:'2-1',v:'138'}], '说明':{l:'0-0',v:'副表'}}")
+    out1 = tmp / "map1.xlsx"
+    r1 = fill(template, raw, out1)
+    wb1 = load_workbook(out1)
+    check("分组同名写入", wb1["客户信息"]["A3"].value == "张三" and wb1["客户信息"]["B3"].value == "138")
+    check("分组单条写入", wb1["说明"]["A1"].value == "副表")
+    check("分组同名不改名", wb1.sheetnames == ["客户信息", "说明"], str(wb1.sheetnames))
+    check("分组上报的表名", r1.sheet_used == ["客户信息", "说明"], str(r1.sheet_used))
+
+    # 2) 分组名不同、数量相同：按顺序重命名 + 写入
+    raw2 = loads("{'客户清单':[{l:'2-0',v:'李四'}], '汇总表':{}}")
+    out2 = tmp / "map2.xlsx"
+    r2 = fill(template, raw2, out2)
+    wb2 = load_workbook(out2)
+    check("按顺序重命名", wb2.sheetnames == ["客户清单", "汇总表"], str(wb2.sheetnames))
+    check("重命名后写入", wb2["客户清单"]["A3"].value == "李四")
+    check("空分组也能改名", wb2["汇总表"]["A1"].value == "这个工作表用来测试多表写入")
+    check("改名有提示", any("重命名" in w for w in r2.warnings))
+
+    # 3) 分组数与模板表数对不上 -> 报错
+    expect_error("分组数对不上", fill, template, loads("{'XX':{}}"), tmp / "map3.xlsx")
+    check("分组数对不上不生成文件", not (tmp / "map3.xlsx").exists())
+
+    # 4) 表名不合法
+    expect_error("表名过长", fill, template, loads("{'%s':{}}" % ("长" * 32)), tmp / "map4.xlsx")
+    expect_error("表名非法字符", fill, template, loads("{'a:b':{}}"), tmp / "map5.xlsx")
+
+    # 5) 空对象
+    expect_error("空分组对象", fill, template, loads("{}"), tmp / "map6.xlsx")
+
+    # 6) 分组内条目自带 s 会被忽略并提示
+    raw7 = loads("{'客户信息':[{l:'2-0',v:'a',s:'说明'}]}")
+    out7 = tmp / "map7.xlsx"
+    r7 = fill(template, raw7, out7)
+    check("忽略条目 s 并提示", any("被忽略" in w for w in r7.warnings))
+    wb7 = load_workbook(out7)
+    check("按分组名写入", wb7["客户信息"]["A3"].value == "a")
+    check("没写到 s 指定的表", wb7["说明"]["A3"].value is None)
+
+    # 7) 分组格式 + 试运行
+    r8 = fill(template, loads("{'表一':{}, '表二':{}}"), None, dry_run=True)
+    check("分组试运行", r8.dry_run and r8.sheet_used == ["表一", "表二"], str(r8.sheet_used))
+
+    # 8) 英文表名大小写不同也算同名
+    tpl_latin = tmp / "模板_latin.xlsx"
+    wb_latin = Workbook()
+    wb_latin.active.title = "Sheet1"
+    wb_latin.create_sheet("Sheet2")
+    wb_latin.save(tpl_latin)
+    out9 = tmp / "map9.xlsx"
+    fill(tpl_latin, loads("{'SHEET1':{l:'0-0',v:'a'}, 'sheet2':{l:'0-0',v:'b'}}"), out9)
+    wb9 = load_workbook(out9)
+    check("大小写同名匹配", wb9.sheetnames == ["SHEET1", "sheet2"], str(wb9.sheetnames))
+    check("大小写匹配写入", wb9["SHEET1"]["A1"].value == "a" and wb9["sheet2"]["A1"].value == "b")
+
+    # 9) 新旧表名互换（验证内部临时改名机制）
+    tpl_swap = tmp / "模板_swap.xlsx"
+    wb_swap = Workbook()
+    wb_swap.active.title = "A"
+    wb_swap.create_sheet("B")
+    wb_swap.save(tpl_swap)
+    out10 = tmp / "map10.xlsx"
+    fill(tpl_swap, loads("{'B':{l:'0-0',v:'来自A'}, 'C':{l:'0-0',v:'来自B'}}"), out10)
+    wb10 = load_workbook(out10)
+    check("表名互换", wb10.sheetnames == ["B", "C"], str(wb10.sheetnames))
+    check("互换后内容正确", wb10["B"]["A1"].value == "来自A" and wb10["C"]["A1"].value == "来自B")
+
+    # 10) 分组模式下 -s 参数被忽略
+    r11 = fill(template, loads("{'客户信息':{l:'2-0',v:'x'}}"), tmp / "map11.xlsx", sheet="说明")
+    check("分组模式忽略 -s", any("-s" in w for w in r11.warnings))
+
 
 def main() -> int:
     test_parser()
@@ -308,6 +398,7 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="writeexcel-test-"))
     try:
         test_excel(tmp)
+        test_sheet_map(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

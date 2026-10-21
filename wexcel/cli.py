@@ -12,7 +12,7 @@ from . import parser as json_parser
 from .excel_writer import (
     FillError,
     fill,
-    normalize_entries,
+    normalize_document,
     _cell_address,
 )
 from .parser import ParseError
@@ -20,7 +20,7 @@ from .parser import ParseError
 __all__ = ["main"]
 
 PROG = "Excel 模板填充工具"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -166,7 +166,10 @@ def build_parser() -> argparse.ArgumentParser:
             "  write_excel -t 模板.xlsx -d 数据.txt -s Sheet1 --parse-numbers\n"
             "\n"
             "数据文件内容示例：\n"
-            "  [{l:'0-0',v:'内容1'},{l:'0-1',v:'内容2'}]\n"
+            "  1) 普通写法（写入活动工作表）：\n"
+            "     [{l:'0-0',v:'内容1'},{l:'0-1',v:'内容2'}]\n"
+            "  2) 按工作表分组（分组名会用来重命名模板里的工作表）：\n"
+            "     {'Sheet1':[{l:'0-0',v:'内容1'}], 'Sheet2':{}}\n"
             "  l 是位置，行-列 从 0 开始；v 是要写入的内容。\n"
             "\n"
             "提示：什么都不带直接运行，会进入交互模式（可把文件直接拖进来）。"
@@ -183,7 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-n", "--dry-run", action="store_true", help="只校验数据、打印将要写入的位置，不产生文件")
     p.add_argument("--no-verify", action="store_true", help="保存后不再重新打开核对")
     p.add_argument("--encoding", help="强制用指定编码读取 txt（utf-8 / gbk / utf-16 等）")
-    p.add_argument("--no-pause", action="store_true", help="结束时不等待回车（便于批处理）")
+    p.add_argument("--pause", action="store_true", help="结束后等待回车（默认只有不带参数双击时才等待）")
+    p.add_argument("--no-pause", action="store_true", help="强制不等待回车（供脚本调用，保证自动结束）")
     p.add_argument("-V", "--version", action="version", version=f"{PROG} {VERSION}")
     return p
 
@@ -221,18 +225,23 @@ def run_fill(args, template: str, data: str, output: str | None) -> int:
         return EXIT_DATA
 
     try:
-        entries = normalize_entries(raw)
+        document = normalize_document(raw)
     except FillError as exc:
         _error(exc.message)
         for line in exc.problems:
             print(f"    - {line}")
         return EXIT_DATA
-    print(f"[解析] 共 {len(entries)} 条数据")
+
+    if document.is_sheet_map:
+        group_names = "、".join(name for name, _ in document.sheet_groups or [])
+        print(f"[解析] 共 {len(document.entries)} 条数据，工作表分组：{group_names}")
+    else:
+        print(f"[解析] 共 {len(document.entries)} 条数据")
 
     try:
         report = fill(
             template_path,
-            raw,
+            document,
             output,
             sheet=args.sheet,
             overwrite=args.overwrite,
@@ -393,7 +402,8 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\n[中断] 已取消。")
         code = 130
-    if code != EXIT_OK or _is_frozen():
+    # 带参数调用（bat / 自动化）默认不暂停，保证能自动结束；需要停在窗口看结果时加 --pause
+    if getattr(args, "pause", False):
         _pause(args)
     return code
 

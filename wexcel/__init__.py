@@ -5,4 +5,4 @@ from .parser import ParseError, loads
 
 __all__ = ["FillError", "FillReport", "fill", "normalize_entries", "ParseError", "loads", "__version__"]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

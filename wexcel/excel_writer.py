@@ -18,9 +18,11 @@ from .parser import ParseError, _MISSING
 from .parser import loads as parse_loads
 
 __all__ = [
+    "DataDocument",
     "FillError",
     "FillReport",
     "TEMPLATE_SUFFIXES",
+    "normalize_document",
     "normalize_entries",
     "parse_cell_refs",
     "fill",
@@ -89,9 +91,11 @@ def _lookup(mapping: dict, keys: tuple[str, ...]) -> tuple[bool, Any]:
     return False, None
 
 
-def _top_level_items(raw: Any) -> list:
-    """把顶层数据统一成「条目列表」。"""
-    # 容忍整个数据被一对引号包起来的情况："[{l:'0-0',v:'内容'}]"
+_DATA_WRAPPER_KEYS = ("data", "datas", "rows", "cells", "list", "items", "数据")
+
+
+def _unwrap_string(raw: Any) -> Any:
+    """容忍整个数据被一对引号包起来："[{l:'0-0',v:'内容'}]"。"""
     for _ in range(2):
         if not isinstance(raw, str):
             break
@@ -105,6 +109,28 @@ def _top_level_items(raw: Any) -> list:
         if isinstance(reparsed, str) and reparsed.strip() == text:
             break
         raw = reparsed
+    return raw
+
+
+def _has_data_wrapper(raw: dict) -> bool:
+    """判断是不是 {"data": [...]} 这种带外层包装的写法。"""
+    for key, value in raw.items():
+        if isinstance(key, str) and key.strip().lower() in _DATA_WRAPPER_KEYS:
+            if isinstance(value, list):
+                return True
+    return False
+
+
+def _looks_like_entry(mapping: Any) -> bool:
+    if not isinstance(mapping, dict):
+        return False
+    found, _ = _lookup(mapping, _LOC_KEYS)
+    return found
+
+
+def _top_level_items(raw: Any) -> list:
+    """把「顶层列表 / {data:[...]} / 单条 {l,v}」统一成条目列表。"""
+    raw = _unwrap_string(raw)
 
     if isinstance(raw, str):
         raise FillError(
@@ -114,17 +140,45 @@ def _top_level_items(raw: Any) -> list:
     if isinstance(raw, list):
         return raw
     if isinstance(raw, dict):
-        # 允许 {"sheet": "...", "data": [...]} 这种带外层包装的写法
-        for key, value in raw.items():
-            if isinstance(key, str) and key.strip().lower() in ("data", "datas", "rows", "cells", "list", "items", "数据"):
-                if isinstance(value, list):
-                    return value
-        # 也允许只写一条 {"l": "0-0", "v": "x"}
-        found, _ = _lookup(raw, _LOC_KEYS)
-        if found:
+        if _has_data_wrapper(raw):
+            for key, value in raw.items():
+                if isinstance(key, str) and key.strip().lower() in _DATA_WRAPPER_KEYS:
+                    if isinstance(value, list):
+                        return value
+        if _looks_like_entry(raw):
             return [raw]
-        raise FillError("数据结构不对：顶层是对象，但里面没有 data 数组，也没有 l / v 字段。")
+        raise FillError(
+            "数据结构不对：顶层是对象，但既不是 {data:[...]}，也不是单条 {l:'0-0',v:'内容'}，"
+            "也不是 {工作表名:[...]} 这种按工作表分组的形式。"
+        )
     raise FillError("数据结构不对：顶层应该是 [ ... ] 数组，形如 [{l:'0-0',v:'内容'},{l:'0-1',v:'内容'}]。")
+
+
+def _entry_from_item(item: Any, tag: str, problems: list[str]) -> dict | None:
+    """把一条数据整理成 {loc, value, sheet}；格式不对就把原因记进 problems。"""
+    if isinstance(item, (list, tuple)):
+        if len(item) != 2:
+            problems.append(f"{tag}：应写成 [位置, 内容] 两个元素，实际给了 {len(item)} 个。")
+            return None
+        item = {"l": item[0], "v": item[1]}
+    if not isinstance(item, dict) or not item:
+        problems.append(f"{tag}：格式不对，应该是 {{l:'行-列', v:'内容'}} 这样的对象。")
+        return None
+
+    found_loc, loc = _lookup(item, _LOC_KEYS)
+    if not found_loc or loc is None or str(loc).strip() == "":
+        problems.append(f"{tag}：缺少位置字段 l（例如 l:'0-0'）。")
+        return None
+    found_val, value = _lookup(item, _VAL_KEYS)
+    if not found_val:
+        problems.append(f"{tag}：缺少内容字段 v（清空单元格请显式写 v:null）。")
+        return None
+    if value is _MISSING:
+        problems.append(f"{tag}：内容字段后面没有值。")
+        return None
+
+    found_sheet, sheet = _lookup(item, _SHEET_KEYS)
+    return {"loc": loc, "value": value, "sheet": sheet if found_sheet else None}
 
 
 def normalize_entries(raw: Any) -> list[dict]:
@@ -136,39 +190,99 @@ def normalize_entries(raw: Any) -> list[dict]:
     entries: list[dict] = []
     problems: list[str] = []
     for index, item in enumerate(items, 1):
-        tag = f"第 {index} 条"
-        if isinstance(item, (list, tuple)):
-            if len(item) != 2:
-                problems.append(f"{tag}：应写成 [位置, 内容] 两个元素，实际给了 {len(item)} 个。")
-                continue
-            item = {"l": item[0], "v": item[1]}
-        if not isinstance(item, dict) or not item:
-            problems.append(f"{tag}：格式不对，应该是 {{l:'行-列', v:'内容'}} 这样的对象。")
+        entry = _entry_from_item(item, f"第 {index} 条", problems)
+        if entry is None:
             continue
-
-        found_loc, loc = _lookup(item, _LOC_KEYS)
-        if not found_loc or loc is None or str(loc).strip() == "":
-            problems.append(f"{tag}：缺少位置字段 l（例如 l:'0-0'）。")
-            continue
-        found_val, value = _lookup(item, _VAL_KEYS)
-        if not found_val:
-            problems.append(f"{tag}：缺少内容字段 v（清空单元格请显式写 v:null）。")
-            continue
-        if value is _MISSING:
-            problems.append(f"{tag}：内容字段后面没有值。")
-            continue
-
-        found_sheet, sheet = _lookup(item, _SHEET_KEYS)
-        entries.append({
-            "loc": loc,
-            "value": value,
-            "sheet": sheet if found_sheet else None,
-            "index": index,
-        })
+        entry["index"] = index
+        entries.append(entry)
 
     if problems:
         raise FillError("数据有 %d 处问题：" % len(problems), problems)
     return entries
+
+
+@dataclass
+class DataDocument:
+    """解析后的数据文档。
+
+    * entries:      扁平的写入条目（每条带 sheet 名，可能为 None）
+    * sheet_groups: 按工作表分组时的 [(分组名, 该表条目列表), ...]；否则为 None
+    * warnings:     解析阶段产生的提示
+    """
+
+    entries: list[dict]
+    sheet_groups: list[tuple[str, list[dict]]] | None = None
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def is_sheet_map(self) -> bool:
+        return self.sheet_groups is not None
+
+
+def _items_from_value(value: Any) -> list:
+    """工作表分组里的值：单条、条目数组、或空（只改表名）。"""
+    if value is None:
+        raise FillError("后面没有写内容：应写 {l:'0-0',v:'内容'}，或 [{l:...,v:...}, ...]，或空 {} / []")
+    if isinstance(value, dict):
+        if not value:
+            return []
+        if _looks_like_entry(value):
+            return [value]
+        raise FillError("格式不对：应为 {l:'0-0',v:'内容'} 或 [{l:...,v:...}, ...]，实际是缺少 l / v 的对象。")
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    raise FillError(f"格式不对：应为 {{l,v}} 或数组，实际是 {type(value).__name__}")
+
+
+def _normalize_sheet_map(raw: dict) -> DataDocument:
+    """处理 {'工作表名': 条目...} 这种按工作表分组、并按名字重命名的写法。"""
+    if not raw:
+        raise FillError("数据是空对象 {}，没有任何工作表内容。")
+
+    document = DataDocument(entries=[])
+    problems: list[str] = []
+    groups: list[tuple[str, list[dict]]] = []
+
+    for key, value in raw.items():
+        name = str(key).strip()
+        try:
+            items = _items_from_value(value)
+        except FillError as exc:
+            problems.append(f"工作表 {name!r}：{exc.message}")
+            continue
+
+        body: list[dict] = []
+        for j, item in enumerate(items, 1):
+            tag = f"工作表 {name!r} 第 {j} 条"
+            entry = _entry_from_item(item, tag, problems)
+            if entry is None:
+                continue
+            if entry["sheet"] is not None and str(entry["sheet"]).strip() != name:
+                document.warnings.append(
+                    f"{tag}：条目里的工作表字段 s={entry['sheet']!r} 被忽略，按外层分组名 {name!r} 处理。"
+                )
+            entry["sheet"] = name
+            entry["index"] = len(document.entries) + 1
+            document.entries.append(entry)
+            body.append(entry)
+
+        groups.append((name, body))
+
+    if not groups:
+        raise FillError("数据里没有任何工作表分组。", problems)
+    if problems:
+        raise FillError("数据有 %d 处问题：" % len(problems), problems)
+
+    document.sheet_groups = groups
+    return document
+
+
+def normalize_document(raw: Any) -> DataDocument:
+    """把顶层数据统一成 DataDocument（兼容旧的数组写法和新的工作表分组写法）。"""
+    raw = _unwrap_string(raw)
+    if isinstance(raw, dict) and not _has_data_wrapper(raw) and not _looks_like_entry(raw):
+        return _normalize_sheet_map(raw)
+    return DataDocument(entries=normalize_entries(raw))
 
 
 # ---------------------------------------------------------------- 位置解析
@@ -261,6 +375,73 @@ def _resolve_sheet(wb, hint: Any):
         if re.sub(r"\s+", "", name.lower()) == squashed:
             return wb[name]
     raise FillError(f"找不到工作表 {text!r}。当前工作簿里有：{'、'.join(names)}")
+
+
+_INVALID_SHEET_CHARS = set(":\\/?*[]")
+
+
+def _clean_sheet_name(name: Any) -> str:
+    """校验并清理工作表名（Excel 限制：<=31 字符，不能含 : \\ / ? * [ ]）。"""
+    text = str(name).strip()
+    if not text:
+        raise FillError("工作表名不能为空。")
+    if len(text) > 31:
+        raise FillError(f"工作表名 {text!r} 太长（Excel 工作表名最多 31 个字符）。")
+    bad = sorted(_INVALID_SHEET_CHARS.intersection(text))
+    if bad:
+        raise FillError(f"工作表名 {text!r} 含有 Excel 不允许的字符：{' '.join(bad)}")
+    return text
+
+
+def _apply_sheet_map(wb, groups: list[tuple[str, list[dict]]]) -> tuple[dict[str, Worksheet], list[str]]:
+    """按数据里的分组名匹配/重命名工作表。返回 (分组名 -> 工作表, 提示列表)。
+
+    匹配规则：
+      1. 分组名与模板中的工作表同名（忽略大小写/首尾空格）→ 用那张表，名字改成分组名写法；
+      2. 否则，如果分组数量正好等于模板工作表数量 → 按顺序对应；
+      3. 都不满足则报错。
+    """
+    keys = [_clean_sheet_name(name) for name, _ in groups]
+    if len(set(keys)) != len(keys):
+        repeated = sorted({k for k in keys if keys.count(k) > 1})
+        raise FillError(f"数据里的工作表名重复：{'、'.join(repeated)}。")
+
+    names = list(wb.sheetnames)
+    by_lower: dict[str, str] = {}
+    for n in names:
+        by_lower.setdefault(n.strip().lower(), n)
+
+    if all(k.lower() in by_lower for k in keys):
+        pairs = [(by_lower[k.lower()], k) for k in keys]
+    elif len(keys) == len(names):
+        pairs = list(zip(names, keys))
+    else:
+        raise FillError(
+            f"数据里有 {len(keys)} 个工作表分组（{'、'.join(keys)}），"
+            f"模板里有 {len(names)} 张工作表（{'、'.join(names)}），对不上。\n"
+            "  规则：分组名要么和模板工作表同名（按名字对应），要么分组数和模板表数相等（按顺序对应）。"
+        )
+
+    sources = [src for src, _ in pairs]
+    if len(set(sources)) != len(sources):
+        raise FillError("多个分组指向了同一张模板工作表，请检查分组名。")
+
+    # 先改成临时名，避免"新名字刚好是另一张表的旧名字"时互相冲突
+    warnings: list[str] = []
+    pending: list[tuple[Worksheet, str, str]] = []
+    for i, (src, dst) in enumerate(pairs):
+        if src == dst:
+            continue
+        ws = wb[src]
+        ws.title = f"__writeexcel_rename_{i}__"
+        pending.append((ws, dst, src))
+
+    for ws, dst, src in pending:
+        ws.title = dst
+        warnings.append(f"工作表「{src}」已重命名为「{dst}」")
+
+    mapping = {k: wb[dst] for k, (_src, dst) in zip(keys, pairs)}
+    return mapping, warnings
 
 
 def _merged_anchor(ws: Worksheet, row: int, col: int) -> tuple[int, int]:
@@ -377,7 +558,10 @@ def fill(
     """把 raw_data（解析好的 JSON 结构）写进模板，另存为 output。
 
     * template: 模板路径，支持 .xlsx / .xlsm
-    * raw_data: 顶层数组，如 [{l:'0-0', v:'内容1'}]
+    * raw_data: 数据，两种形态：
+               1. 顶层数组：[{l:'0-0', v:'内容1'}, ...]
+               2. 按工作表分组：{'工作表名': {l:'0-0', v:'内容'}, ...}
+                  —— 分组名会用来重命名模板里的工作表
     * output:   输出路径；不传则默认「模板名_已填充.xlsx」
     * sheet:    工作表名或序号（1 基），不传用活动工作表
     * overwrite: 输出文件已存在时是否覆盖（同时出现在模板路径时视为允许覆盖模板）
@@ -389,11 +573,13 @@ def fill(
     template_path = Path(template).expanduser().resolve()
     _check_template(template_path)
 
-    entries = normalize_entries(raw_data)
+    document = raw_data if isinstance(raw_data, DataDocument) else normalize_document(raw_data)
+    entries = document.entries
 
     output_path = _decide_output(template_path, output, overwrite, dry_run)
 
-    warnings = _archive_hints(template_path)
+    warnings = list(document.warnings)
+    warnings.extend(_archive_hints(template_path))
 
     # ---- 载入工作簿
     keep_vba = template_path.suffix.lower() == ".xlsm"
@@ -413,6 +599,14 @@ def fill(
     if keep_vba and output_path.suffix.lower() != ".xlsm":
         raise FillError("模板是启用宏的 .xlsm，输出文件也必须是 .xlsm 后缀。")
 
+    # ---- 按工作表分组：先把页名改成数据里给的名字
+    sheet_map: dict[str, Worksheet] | None = None
+    if document.is_sheet_map:
+        if sheet not in (None, ""):
+            warnings.append("数据已按工作表分组给出，-s / sheet 参数被忽略。")
+        sheet_map, rename_warnings = _apply_sheet_map(wb, document.sheet_groups or [])
+        warnings.extend(rename_warnings)
+
     # ---- 逐条校验（先全部校验，任何一条出错都不写文件）
     problems: list[str] = []
     planned: list[tuple[Worksheet, int, int, Any, str]] = []
@@ -422,11 +616,17 @@ def fill(
     for entry in entries:
         idx = entry["index"]
         tag = f"第 {idx} 条（l={entry['loc']!r}）"
-        try:
-            ws = _resolve_sheet(wb, entry["sheet"] if entry["sheet"] is not None else sheet)
-        except FillError as exc:
-            problems.append(f"{tag}：{exc.message}")
-            continue
+        if sheet_map is not None:
+            ws = sheet_map.get(str(entry["sheet"]).strip())
+            if ws is None:
+                problems.append(f"{tag}：找不到工作表分组 {entry['sheet']!r}。")
+                continue
+        else:
+            try:
+                ws = _resolve_sheet(wb, entry["sheet"] if entry["sheet"] is not None else sheet)
+            except FillError as exc:
+                problems.append(f"{tag}：{exc.message}")
+                continue
 
         try:
             refs = parse_cell_refs(entry["loc"])
@@ -466,7 +666,12 @@ def fill(
     if problems:
         raise FillError("数据有 %d 处问题，没有写入任何内容：" % len(problems), problems)
 
-    if not planned:
+    if sheet_map is not None:
+        for name in sheet_map:
+            if name not in used_sheets:
+                used_sheets.append(name)
+
+    if not planned and sheet_map is None:
         raise FillError("没有可以写入的单元格。")
 
     # ---- 试运行：只返回计划，不动文件

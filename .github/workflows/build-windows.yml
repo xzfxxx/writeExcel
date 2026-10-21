@@ -38,13 +38,19 @@ jobs:
           python -m PyInstaller --noconfirm --clean --onefile --name writeExcel
           --console --collect-submodules openpyxl write_excel.py
 
-      - name: Smoke test exe
+      - name: Smoke test exe (single sheet data)
         shell: pwsh
         run: |
           .\dist\writeExcel.exe --version
           .\dist\writeExcel.exe example\模板示例.xlsx example\数据示例.txt -o example\out-test.xlsx --no-pause
           if (-not (Test-Path "example\out-test.xlsx")) { throw "exe did not create output file" }
           python -c "from openpyxl import load_workbook; ws=load_workbook(r'example\out-test.xlsx')['客户信息']; assert ws['A3'].value=='张三', ws['A3'].value; print('smoke ok')"
+
+      - name: Smoke test exe (sheet groups + rename)
+        shell: pwsh
+        run: |
+          .\dist\writeExcel.exe example\模板示例.xlsx example\数据示例_多表.txt -o example\out-test2.xlsx --no-pause
+          python -c "from openpyxl import load_workbook; wb=load_workbook(r'example\out-test2.xlsx'); assert wb.sheetnames==['客户清单','备注表'], wb.sheetnames; assert wb['客户清单']['A3'].value=='张三'; print('sheet-map ok')"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
