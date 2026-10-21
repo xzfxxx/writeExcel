@@ -15,6 +15,13 @@ dist/
 *_已填充*.xlsm
 *.tmp-writing
 
+# Excel 打开文件时产生的临时锁文件
+~$*
+
+# 本地打包产物 / 二进制
+*.exe
+*.exe.txt
+
 # 系统
 .DS_Store
 Thumbs.db
