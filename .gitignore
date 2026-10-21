@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+.pyinstaller-cache/
+
+# 输出文件
+*_已填充*.xlsx
+*_已填充*.xlsm
+*.tmp-writing
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/

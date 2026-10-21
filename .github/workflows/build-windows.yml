@@ -1,0 +1,54 @@
+name: build-windows-exe
+
+# 在云端 Windows 机器上打包，产出可直接在"白板"Windows 电脑运行的 writeExcel.exe
+# 用法：把这个项目推到 GitHub，仓库页 -> Actions -> build-windows-exe -> Run workflow
+#       跑完后在本次运行页面底部下载 artifact（writeExcel-windows-x64.zip）
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Self test
+        run: python tests/selftest.py
+
+      - name: Build exe
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --name writeExcel
+          --console --collect-submodules openpyxl write_excel.py
+
+      - name: Smoke test exe
+        shell: pwsh
+        run: |
+          .\dist\writeExcel.exe --version
+          .\dist\writeExcel.exe example\模板示例.xlsx example\数据示例.txt -o example\out-test.xlsx --no-pause
+          if (-not (Test-Path "example\out-test.xlsx")) { throw "exe did not create output file" }
+          python -c "from openpyxl import load_workbook; ws=load_workbook(r'example\out-test.xlsx')['客户信息']; assert ws['A3'].value=='张三', ws['A3'].value; print('smoke ok')"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: writeExcel-windows-x64
+          path: dist/writeExcel.exe
+          if-no-files-found: error

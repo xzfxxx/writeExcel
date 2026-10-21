@@ -1,0 +1,46 @@
+@echo off
+setlocal
+cd /d "%~dp0"
+chcp 65001 >nul
+
+echo ============================================================
+echo  Building writeExcel.exe  (onefile, console)
+echo ============================================================
+
+where python >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Python was not found.
+    echo         Install Python 3.9+ from https://www.python.org/downloads/
+    echo         and tick "Add python.exe to PATH" during setup.
+    pause
+    exit /b 1
+)
+
+echo [1/3] Installing dependencies ...
+python -m pip install --upgrade pip >nul
+python -m pip install -r requirements.txt pyinstaller
+if errorlevel 1 goto fail
+
+echo [2/3] Running tests ...
+python tests\selftest.py
+if errorlevel 1 (
+    echo [WARN] self-test failed, but building anyway ...
+)
+
+echo [3/3] Building exe ...
+python -m PyInstaller --noconfirm --clean --onefile --name writeExcel --console --collect-submodules openpyxl write_excel.py
+if errorlevel 1 goto fail
+
+echo.
+echo ============================================================
+echo  Done.  Output:  dist\writeExcel.exe
+echo  Copy that single file to any Windows PC - no Python needed.
+echo ============================================================
+pause
+exit /b 0
+
+:fail
+echo.
+echo [ERROR] Build failed. Scroll up to see the reason.
+pause
+exit /b 1
