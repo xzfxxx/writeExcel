@@ -15,6 +15,13 @@ import tempfile
 import traceback
 from pathlib import Path
 
+# 输出统一用 UTF-8：避免 Windows 英文系统（cp1252 等）打印中文时崩溃
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
