@@ -31,3 +31,6 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# 允许提交已打好的 Windows 程序（放在最后，覆盖上面的 *.exe 规则）
+!dist/writeExcel.exe
