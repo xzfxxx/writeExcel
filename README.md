@@ -23,8 +23,7 @@
 |------|------|
 | ① 拖拽 | 把 **Excel 模板** 和 **数据 txt** 一起选中，拖到 `writeExcel.exe` 图标上松手 |
 | ② 双击 | 双击 `writeExcel.exe`，按提示粘贴/拖入两个文件路径，回车 |
-| ③ 命令行 | `writeExcel.exe 模板.xlsx 数据.txt` |
-| ④ 脚本自动调用 | `fill.bat 模板.xlsx 数据.txt [输出.xlsx]`（全程无人工交互，见第五节） |
+| ③ 命令行 | `writeExcel.exe 模板.xlsx 数据.txt`（带参数调用不会停留，可直接被脚本调用，见第五节） |
 
 输出默认生成在模板同目录：`模板名_已填充.xlsx`。
 
@@ -35,7 +34,7 @@ pip install -r requirements.txt          # 只需 openpyxl
 python write_excel.py 模板.xlsx 数据.txt
 ```
 
-Windows 上也可以双击 **`run.bat`** 进入交互模式。
+Windows 上直接双击 `writeExcel.exe` 会进入交互模式；没有 exe 时也可以 `python write_excel.py` 不带参数运行。
 
 ---
 
@@ -215,7 +214,7 @@ write_excel.exe 模板.xlsx 数据.txt [输出.xlsx] [选项]
 
 ### 交互模式
 
-不带任何参数运行（或双击 `run.bat` / `writeExcel.exe`）会进入交互模式：
+不带任何参数运行（或双击 `writeExcel.exe`）会进入交互模式：
 
 ```
 Excel 模板路径：  ← 可以把文件直接拖进窗口
@@ -227,38 +226,33 @@ Excel 模板路径：  ← 可以把文件直接拖进窗口
 
 ---
 
-## 五、用 bat 脚本自动调用（无人工交互）
+## 五、命令行直接调用（无人工交互）
 
-把 `writeExcel.exe` 和 `fill.bat` 放在**同一个文件夹**，然后在自己的脚本 / 程序里调用：
-
-```bat
-fill.bat 模板.xlsx 数据.txt [输出.xlsx] [更多参数...]
-```
-
-| 位置 | 含义 |
-|------|------|
-| 参数1 | Excel 模板路径（必填） |
-| 参数2 | 数据 txt 路径（必填） |
-| 参数3 | 输出文件名或完整路径（**不传** → 按原逻辑生成 `模板名_已填充.xlsx`，已存在自动加 `(2)`） |
-| 参数4+ | 透传给程序，例如 `-y`（覆盖）、`--parse-numbers`、`--force-text` |
-
-> 参数3 如果只写文件名（不带目录），文件会生成在**调用时的当前目录**；建议需要固定位置时直接传完整路径。
-
-特点：
-
-* **全程不需要人工操作**，执行完立即返回，不会停在窗口等回车；
-* 用 **退出码** 判断结果：`0` = 成功，`2` = 参数不对，`3` = 数据有问题，`4` = 写入失败，`9009` = 找不到 exe；
-* 标准的 Windows 批处理调用方式，可被 Python / Java / .NET / 计划任务 / Web 后端直接调用。
-
-示例（生成到指定目录，允许覆盖）：
+不需要任何中间脚本，直接调用 exe：
 
 ```bat
-fill.bat "D:\tpl\template.xlsx" "D:\data\data.txt" "D:\out\result.xlsx" -y
+:: 默认输出：模板名_已填充.xlsx（同目录，重名自动加 (2)）
+writeExcel.exe "模板.xlsx" "数据.txt"
+
+:: 指定输出文件并允许覆盖
+writeExcel.exe "模板.xlsx" "数据.txt" "结果.xlsx" -y
+
+:: 更完整的写法
+writeExcel.exe "D:\tpl\模板.xlsx" "D:\data\数据.txt" -o "D:\out\结果.xlsx" --parse-numbers
 ```
 
-只想验证整条链路是否正常，可以双击 **`demo_auto.bat`**：它会自动用示例模板 + 多表示例数据生成 `example\自动输出.xlsx` 并显示退出码。
+要把结果固定写到某个位置（Web 后端 / 计划任务常用）：
 
-> 如果直接在代码里调用 `writeExcel.exe`（不经过 fill.bat），请注意带上 `--no-pause`（虽然带参数调用默认也不暂停，加上更保险），并用退出码判断成败。
+```bat
+writeExcel.exe "模板.xlsx" "数据.txt" -o "D:\out\result.xlsx" -y --no-pause
+```
+
+要点：
+
+* **带参数调用默认不等待回车**，执行完立即退出，不会卡在窗口；
+* 用 **退出码** 判断结果：`0` = 成功，`2` = 参数不对，`3` = 数据有问题，`4` = 写入失败；
+* 可被 Python / Java / .NET / 计划任务 / Web 后端直接调用（`subprocess.run([...]).returncode`）；
+* 想在窗口中停下来看输出，加 `--pause`；不想有任何等待，加 `--no-pause`（效果与默认一致，加了更保险）。
 
 ---
 
@@ -306,15 +300,19 @@ Excel 上限 32767 个字符，超了会报错并说明是哪一条。
 **Q：一个工作表都没有、只想改名？**
 分组值写空对象 `{}` 或空数组 `[]`，例如 `{'2024年数据': {}}`，只会重命名页签。
 
-**Q：运行 `fill.bat` 后 cmd 一直卡着不动？**
-常见原因是 **.bat 文件的换行/编码不对**：Windows 批处理必须是 **CRLF 换行 + ASCII（或系统 ANSI）编码**。用 Linux/macOS 编辑器改过就会变成 LF，cmd 解析 `if (...)` 多行块时会卡住甚至反复执行。
-本项目的 4 个 bat 已经统一为 **CRLF + 纯 ASCII + 无多行括号块**，并且 `fill.bat` 把标准输入重定向到 `NUL`，所以**即使程序想等按键也会立刻返回**，不可能卡住。
-如果还有问题，先单独验证 exe：
+**Q：自己写 .bat 包一层调用 exe，结果卡着不动？**
+Windows 批处理必须是 **CRLF 换行 + ASCII（或系统 ANSI）编码**；用 Linux/macOS 编辑器保存成 LF 后，cmd 解析 `if (...)` 多行块会错乱、反复执行。
+另外在 bat 里调用时**把标准输入重定向到 NUL**，即使程序想等按键也会立刻返回：
+
 ```bat
-writeExcel.exe --version
-writeExcel.exe "模板.xlsx" "数据.txt" --no-pause
+"%~dp0writeExcel.exe" "%~1" "%~2" -o "%~3" -y --no-pause <nul
+exit /b %ERRORLEVEL%
 ```
-`--version` 显示的是 `1.1.0` 或更高才说明用的是新 exe（旧 exe 需要重新打包）。
+
+（本项目仓库里的 `.gitattributes` 已把 `*.bat` 固定为 CRLF，防止 clone 后被转成 LF。）
+
+**Q：直接命令行调用时要不要加 `--no-pause`？**
+建议加。带参数调用本来就不会等待回车，`--no-pause` 只是双保险；用 `writeExcel.exe --version` 确认 exe 是 `1.1.0` 或更高（旧 exe 需要重新打包）即可。
 
 ---
 
@@ -333,10 +331,8 @@ writeExcel/
 │  ├─ data-sample-multi.txt   # 示例数据（按工作表分组 + 改名）
 │  └─ make_sample.py         # 重新生成示例模板
 ├─ tests/selftest.py         # 自测（108 项断言，不依赖 pytest）
-├─ fill.bat                  # 【自动调用】参数：模板 数据 [输出]（无人工交互）
-├─ demo_auto.bat             # 双击验证整条自动调用链路
-├─ build_windows.bat         # 在 Windows 上打包 exe
-├─ run.bat                   # Windows 交互模式启动器（需已装 Python）
+├─ build_windows.bat         # 在 Windows 上打包 exe（需要本机有 Python）
+├─ .gitattributes            # 固定 *.bat 为 CRLF（防 Windows 批处理出错）
 ├─ .github/workflows/build-windows.yml   # 云端 Windows 自动打包
 └─ requirements.txt
 ```

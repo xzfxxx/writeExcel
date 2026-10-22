@@ -26,7 +26,7 @@ echo.
 echo ============================================================
 echo  Done.  Output:  dist\writeExcel.exe
 echo  Copy that single file to any Windows PC - no Python needed.
-echo  Keep fill.bat next to writeExcel.exe to call it from scripts.
+echo  Call it directly: writeExcel.exe "template.xlsx" "data.txt" -y --no-pause
 echo ============================================================
 pause
 exit /b 0
