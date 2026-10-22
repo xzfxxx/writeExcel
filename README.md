@@ -40,14 +40,35 @@ Windows 上直接双击 `writeExcel.exe` 会进入交互模式；没有 exe 时�
 
 ## 二、怎么得到 writeExcel.exe
 
-打包必须在 **Windows 上** 完成（PyInstaller 不支持跨系统打包），有两条路：
+打包必须在 **Windows 上** 完成（PyInstaller 不支持跨系统打包）。三种方式任选：
 
-### 路线 1：GitHub Actions 自动打包（推荐，本机什么都不用装）
+### 路线 0：直接下载仓库里已经打好的 exe（最快，什么都不用装）
 
-1. 把这个项目推到 GitHub 仓库（私有仓库也行）；
-2. 打开仓库页面 → **Actions** → 左侧 **build-windows-exe** → 右侧 **Run workflow**；
-3. 等 2~3 分钟，点进这次运行，页面最下方 **Artifacts** 下载 `writeExcel-windows-x64.zip`；
-4. 解压得到 `writeExcel.exe`，复制到任何 Windows 电脑直接用。
+仓库里已经放了一份由当前 `main` 分支代码构建的 Windows 程序：
+
+```
+dist/writeExcel.exe        # 约 9.3 MB（v1.1.0），PE32+ x86-64，Windows 10/11 64 位
+```
+
+打开 <https://github.com/xzfxxx/writeExcel/blob/main/dist/writeExcel.exe> → 点右侧 **Download raw file** 即可下载，
+拷贝到任何 Windows 电脑直接运行（不需要装 Python，也不需要装 Excel）。
+
+也可以用命令行下载：
+
+```bash
+gh run download -n writeExcel-windows-x64 -R xzfxxx/writeExcel -D .
+# 或
+curl -L -o writeExcel.exe https://raw.githubusercontent.com/xzfxxx/writeExcel/main/dist/writeExcel.exe
+```
+
+> 这个 exe 由 GitHub Actions 在 Windows Server 上打包并通过自测，SHA256：
+> `d39fb8e09dcd8160423f9e0ccc3491891205af501955358563026bdae4a1722c`
+
+### 路线 1：GitHub Actions 自动打包（改了代码后重新出 exe）
+
+1. 打开仓库页面 → **Actions** → 左侧 **build-windows-exe** → 右侧 **Run workflow**；
+2. 约 1 分钟（有 pip 缓存），点进这次运行，页面最下方 **Artifacts** 下载 `writeExcel-windows-x64.zip`；
+3. 解压得到 `writeExcel.exe`。
 
 ### 路线 2：在任意一台装了 Python 的 Windows 上打包一次
 
@@ -56,8 +77,6 @@ build_windows.bat
 ```
 
 结束后得到 `dist\writeExcel.exe`，同样可以拷到没有 Python 的电脑上运行。
-
-> 说明：当前开发环境是 macOS，无法直接产出 Windows 的 exe，所以上面的打包脚本/工作流是交付的一部分，代码本身已经完整实现并在 macOS 上测试通过。
 
 ---
 
@@ -330,6 +349,7 @@ writeExcel/
 │  ├─ data-sample.txt         # 示例数据（普通数组写法）
 │  ├─ data-sample-multi.txt   # 示例数据（按工作表分组 + 改名）
 │  └─ make_sample.py         # 重新生成示例模板
+├─ dist/writeExcel.exe       # 已打好的 Windows 程序（9.3 MB，可直接下载使用）
 ├─ tests/selftest.py         # 自测（108 项断言，不依赖 pytest）
 ├─ build_windows.bat         # 在 Windows 上打包 exe（需要本机有 Python）
 ├─ .gitattributes            # 固定 *.bat 为 CRLF（防 Windows 批处理出错）

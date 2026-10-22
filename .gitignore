@@ -6,9 +6,11 @@ venv/
 
 # PyInstaller
 build/
-dist/
 *.spec
 .pyinstaller-cache/
+# dist 里只保留已打好的 Windows 程序，其余忽略
+dist/*
+!dist/writeExcel.exe
 
 # 输出文件
 *_已填充*.xlsx
